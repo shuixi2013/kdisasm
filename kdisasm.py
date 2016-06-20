@@ -16,24 +16,27 @@ Architecture = "@"
 BasicMode = "@"
 
 KERNEL_BASE_ADDR = "@"
+BYTE_SIZE = 0
 
 
 def arm32(func):
-    global Architecture, BasicMode, KERNEL_BASE_ADDR
+    global Architecture, BasicMode, KERNEL_BASE_ADDR, BYTE_SIZE
 
-    Architecture = CS_ARCH_ARM
+    Architecture = CS_ARCH_ARM  # CS_ARCH_ARM
     BasicMode = CS_MODE_ARM     # CS_MODE_THUMB
     KERNEL_BASE_ADDR = 0xc0008000
+    BYTE_SIZE = 4
 
     return func
 
 
 def arm64(func):
-    global Architecture, BasicMode, KERNEL_BASE_ADDR
+    global Architecture, BasicMode, KERNEL_BASE_ADDR, BYTE_SIZE
 
     Architecture = CS_ARCH_ARM64
     BasicMode = CS_MODE_ARM
     KERNEL_BASE_ADDR = 0xffffffc000080000
+    BYTE_SIZE = 8
 
     return func
 
@@ -149,6 +152,18 @@ class DisAsm(object):
             if api_info["api_name"] == api_name:
                 return self.get_asm(api_info["address"], api_info["length"])
 
+    # param: offset of kernel file
+    # return: value
+    def read_value_by_offset(self, offset):
+        value = 0
+        f = open(self.__kernel_file_path, "rb")
+        f.seek(offset)
+        for i in xrange(BYTE_SIZE):
+            c = f.read(1)
+            value += ord(c) << (i * 8)
+        f.close()
+        return value
+
 
 # find api address of kallsyms
 # used to search rop
@@ -230,7 +245,7 @@ class KallSyms():
 # example disassemble
 def dump_asm():
     da = DisAsm(KERNEL_FILE_PATH, KALLSYMS_FILE_PATH)
-    da.dump_disasm("mx2-kernel-asmx64.c")
+    da.dump_disasm("nexus5-4.4-KRT16M.c")
 
 
 # example find api address
@@ -253,7 +268,7 @@ def get_apis_addr():
 
 def get_api_asm():
     da = DisAsm(KERNEL_FILE_PATH, KALLSYMS_FILE_PATH)
-    asm_list = da.get_asm_by_name("cred_has_capability")
+    asm_list = da.get_asm_by_name("enforcing_setup")
     for asm_ in asm_list:
         print asm_
 

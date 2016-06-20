@@ -7,12 +7,12 @@
 
 """
 
-import kdisasm
 
+from kdisasm import *
 from config.path import *
 
-disasm = kdisasm.DisAsm(KERNEL_FILE_PATH, KALLSYMS_FILE_PATH)
-kallsyms = kdisasm.KallSyms(KALLSYMS_FILE_PATH)
+disasm = DisAsm(KERNEL_FILE_PATH, KALLSYMS_FILE_PATH)
+kallsyms = KallSyms(KALLSYMS_FILE_PATH)
 
 # patch tags
 patch_tags = {
@@ -25,14 +25,27 @@ patch_tags = {
 }
 
 
+# platform
+platform = 0
+
+
 def arm32(func):
-    global patch_tags
+    global patch_tags, platform
+
+    platform = 32
+
+    patch_tags["selinux_enforcing_tags"] = [
+        "str r2,",  # str r2, [r3, #8]
+        "mov r0, #1"    #
+    ]
 
     return func
 
 
 def arm64(func):
-    global patch_tags
+    global patch_tags, platform
+
+    platform = 64
 
     patch_tags["selinux_enforcing_tags"] = [
         "adrp x0,",  # adrp x0, #0xffffffc000f4c000
@@ -74,11 +87,23 @@ def get_selinux_enforcing_address():
 
     enforcing_setup_address = 0
     asm_list = disasm.get_asm_by_name("enforcing_setup")
-    for asm in asm_list:
-        if selinux_enforcing_tags[0] in asm:
-            enforcing_setup_address += long(asm.split("#")[-1].strip(), 16)
-        if selinux_enforcing_tags[1] in asm:
-            enforcing_setup_address += long(asm.split("#")[-1].rstrip("]"), 16)
+
+    if platform == 32:
+        for index, asm in enumerate(asm_list):
+            if selinux_enforcing_tags[0] in asm and selinux_enforcing_tags[1] in asm_list[index+1]:
+                enforcing_setup_address += long(asm.split("#")[-1].rstrip("]"), 16)
+                offset = long(asm_list[-1].split(":")[0].strip(), 16) + 0x4 - KERNEL_BASE_ADDR
+                enforcing_setup_address += disasm.read_value_by_offset(offset)
+                break
+
+    elif platform == 64:
+        for asm in asm_list:
+            if selinux_enforcing_tags[0] in asm:
+                enforcing_setup_address += long(asm.split("#")[-1].strip(), 16)
+            if selinux_enforcing_tags[1] in asm:
+                enforcing_setup_address += long(asm.split("#")[-1].rstrip("]"), 16)
+    else:
+        raise
 
     print "selinux_enforcing_address: 0x%lx" % enforcing_setup_address
     return enforcing_setup_address
@@ -91,9 +116,17 @@ def get_security_offset():
 
     cred_security_offset = 0
     asm_list = disasm.get_asm_by_name("cred_has_capability")
-    for asm in asm_list:
-        if cred_security_offset_tags[0] in asm:
-            cred_security_offset = long(asm.split("#")[-1].strip("]"), 16)
+
+    if platform == 32:
+        pass
+
+    elif platform == 64:
+        for asm in asm_list:
+            if cred_security_offset_tags[0] in asm:
+                cred_security_offset = long(asm.split("#")[-1].strip("]"), 16)
+
+    else:
+        raise
 
     print "cred_security_offset: 0x%lx" % cred_security_offset
     return cred_security_offset
@@ -108,39 +141,47 @@ def get_ptmx_fops_address():
     tty_default_fops_address = kallsyms.find_apis_addr(["tty_default_fops"])["tty_default_fops"]
     # print hex(tty_default_fops_address)
     asm_list = disasm.get_asm_by_name("pty_init")
-    i, regs = 0, ""
-    for asm in reversed(asm_list):
-        if i == 0:
-            if ptmx_fops_tags[0] in asm and long(asm.split("#")[-1].strip(), 16) == tty_default_fops_address:
-                i += 1
-                continue
-        if i == 1:
-            if ptmx_fops_tags[1] in asm:
-                regs = asm.split(" ")[-1].strip()
-                ptmx_fops_tags[2] = ptmx_fops_tags[2].replace("regs", regs)
-                i += 1
-                continue
-        if i == 2:
-            if ptmx_fops_tags[2] in asm:
-                regs = asm.split(" ")[3].strip(",")
-                ptmx_fops_tags[3] = ptmx_fops_tags[3].replace("regs", regs)
-                i += 1
-                ptmx_fops_address += long(asm.split("#")[-1].strip(), 16)
-                continue
 
-        if i == 3:
-            if ptmx_fops_tags[3] in asm:
-                regs = asm.split(" ")[3].strip(",")
-                ptmx_fops_tags[4] = ptmx_fops_tags[4].replace("regs", regs)
-                i += 1
-                ptmx_fops_address += long(asm.split("#")[-1].strip(), 16)
-                continue
-        if i == 4:
-            if ptmx_fops_tags[4] in asm:
-                ptmx_fops_address += long(asm.split("#")[-1].strip(), 16)
-                break
+    if platform == 32:
+        pass
 
-    if ptmx_fops_address > 0xffffffc000000000:
+    elif platform == 64:
+        i, regs = 0, ""
+        for asm in reversed(asm_list):
+            if i == 0:
+                if ptmx_fops_tags[0] in asm and long(asm.split("#")[-1].strip(), 16) == tty_default_fops_address:
+                    i += 1
+                    continue
+            if i == 1:
+                if ptmx_fops_tags[1] in asm:
+                    regs = asm.split(" ")[-1].strip()
+                    ptmx_fops_tags[2] = ptmx_fops_tags[2].replace("regs", regs)
+                    i += 1
+                    continue
+            if i == 2:
+                if ptmx_fops_tags[2] in asm:
+                    regs = asm.split(" ")[3].strip(",")
+                    ptmx_fops_tags[3] = ptmx_fops_tags[3].replace("regs", regs)
+                    i += 1
+                    ptmx_fops_address += long(asm.split("#")[-1].strip(), 16)
+                    continue
+
+            if i == 3:
+                if ptmx_fops_tags[3] in asm:
+                    regs = asm.split(" ")[3].strip(",")
+                    ptmx_fops_tags[4] = ptmx_fops_tags[4].replace("regs", regs)
+                    i += 1
+                    ptmx_fops_address += long(asm.split("#")[-1].strip(), 16)
+                    continue
+            if i == 4:
+                if ptmx_fops_tags[4] in asm:
+                    ptmx_fops_address += long(asm.split("#")[-1].strip(), 16)
+                    break
+
+    else:
+        raise
+
+    if ptmx_fops_address > KERNEL_BASE_ADDR:
         print "ptmx_fops_address: 0x%lx" % ptmx_fops_address
         return ptmx_fops_address
 
@@ -153,12 +194,20 @@ def get_ioctl_back_address():
 
     ioctl_back_address = 0
     asm_list = disasm.get_asm_by_name("do_vfs_ioctl")
-    for asm in asm_list:
-        if ioctl_back_address_tags[0] in asm:
-            ioctl_back_address = long(asm.split(":")[0].strip(), 16)
-            break
 
-    if ioctl_back_address > 0xffffffc000000000:
+    if platform == 32:
+        pass
+
+    elif platform == 64:
+        for asm in asm_list:
+            if ioctl_back_address_tags[0] in asm:
+                ioctl_back_address = long(asm.split(":")[0].strip(), 16)
+                break
+
+    else:
+        raise
+
+    if ioctl_back_address > KERNEL_BASE_ADDR:
         print "ioctl_back_address: 0x%lx" % ioctl_back_address
         return ioctl_back_address
 
@@ -171,14 +220,22 @@ def get_init_task_address():
 
     init_task_address = 0
     asm_list = disasm.get_asm_by_name("cgroup_init_subsys")
-    i = 0
-    for asm in reversed(asm_list):
-        if init_task_tags[0] in asm:
-            i += 1
-        if i == 3 and init_task_tags[1] in asm:
-            init_task_address = long(asm.split("#")[-1].strip(), 16)
-            break
-    if init_task_address & 0xffff == 0:
+
+    if platform == 32:
+        pass
+
+    elif platform == 64:
+        i = 0
+        for asm in reversed(asm_list):
+            if init_task_tags[0] in asm:
+                i += 1
+                continue
+
+            if i == 3 and init_task_tags[1] in asm:
+                init_task_address = long(asm.split("#")[-1].strip(), 16)
+                break
+
+    if init_task_address & 0xfff == 0:
         print "init_task_address: 0x%lx" % init_task_address
         return init_task_address
 
@@ -193,22 +250,30 @@ def get_task_struct_tasks_offset():
     init_task_address = get_init_task_address()
 
     asm_list = disasm.get_asm_by_name("copy_process")
-    i = 0
-    offset_tag = "tag"
-    for asm in asm_list:
-        if i < 3:
-            if tasks_offset_tags[0] in asm and long(asm.split("#")[-1].strip(), 16) == init_task_address:
+
+    if platform == 32:
+        pass
+
+    elif platform == 64:
+        i = 0
+        offset_tag = "tag"
+        for asm in asm_list:
+            if i < 3:
+                if tasks_offset_tags[0] in asm and long(asm.split("#")[-1].strip(), 16) == init_task_address:
+                    i += 1
+
+            if i == 2:
+                regs = asm.split(" ")[2].strip(",")
+                offset_tag = tasks_offset_tags[1].replace("regs", regs)
                 i += 1
+                continue
 
-        if i == 2:
-            regs = asm.split(" ")[2].strip(",")
-            offset_tag = tasks_offset_tags[1].replace("regs", regs)
-            i += 1
-            continue
+            if i == 3 and offset_tag in asm:
+                task_struct_tasks_offset = long(asm.split("#")[-1].strip("]"), 16)
+                break
 
-        if i == 3 and offset_tag in asm:
-            task_struct_tasks_offset = long(asm.split("#")[-1].strip("]"), 16)
-            break
+    else:
+        raise
 
     if task_struct_tasks_offset > 0:
         print "task_struct_tasks_offset: 0x%lx" % task_struct_tasks_offset
@@ -229,6 +294,7 @@ def main():
     get_ptmx_fops_address()
     get_ioctl_back_address()
     get_task_struct_tasks_offset()
+
 
 if __name__ == '__main__':
     main()
