@@ -51,7 +51,7 @@ def output_log(print_info, is_print=True, is_print_time=False):
 
 
 # Disassemble and dump
-@arm64
+@arm32
 class DisAsm(object):
     def __init__(self, kernel_file_path=None, kallsyms_file_path=None):
         if not isinstance(kernel_file_path, str) or not isinstance(kallsyms_file_path, str):
@@ -108,7 +108,7 @@ class DisAsm(object):
         except CsError as e:
             output_log(str(e))
 
-    def get_asm(self, disasm_start_addr, disasm_len):
+    def get_asm_by_address(self, disasm_start_addr, disasm_len):
         disasm_file_offset = disasm_start_addr - self.__kernel_base_addr
         buf = self.get_part_hex_code(disasm_file_offset, disasm_len)
         return self.disasm_hex_code(buf, disasm_start_addr)
@@ -150,7 +150,7 @@ class DisAsm(object):
 
         for api_info in all_api_info:
             if api_info["api_name"] == api_name:
-                return self.get_asm(api_info["address"], api_info["length"])
+                return self.get_asm_by_address(api_info["address"], api_info["length"])
 
     # param: offset of kernel file
     # return: value
@@ -163,6 +163,13 @@ class DisAsm(object):
             value += ord(c) << (i * 8)
         f.close()
         return value
+
+    # param: address of kernel
+    # return: value
+    def read_value_by_kernel_address(self, kernel_address):
+        if kernel_address < KERNEL_BASE_ADDR:
+            raise
+        return self.read_value_by_offset(kernel_address - KERNEL_BASE_ADDR)
 
 
 # find api address of kallsyms
