@@ -35,8 +35,9 @@ def arm32(func):
     platform = 32
 
     patch_tags["selinux_enforcing_tags"] = [
-        "str r2,",  # str r2, [r3, #8]
-        "mov r0, #1"    #
+        "ldr r3, [pc,",   # ldr r3, [pc, #0x14]
+        "str r2, [r3,",  # str r2, [r3, #4]
+        "mov r0, #1",     #
     ]
 
     return func
@@ -89,11 +90,19 @@ def get_selinux_enforcing_address():
     asm_list = disasm.get_asm_by_name("enforcing_setup")
 
     if platform == 32:
+        i = 0
         for index, asm in enumerate(asm_list):
-            if selinux_enforcing_tags[0] in asm and selinux_enforcing_tags[1] in asm_list[index+1]:
-                enforcing_setup_address += long(asm.split("#")[-1].rstrip("]"), 16)
-                offset = long(asm_list[-1].split(":")[0].strip(), 16) + 0x4 - KERNEL_BASE_ADDR
-                enforcing_setup_address += disasm.read_value_by_offset(offset)
+            if i == 0 and selinux_enforcing_tags[0] in asm:
+                i += 1
+                pc = long(asm.split(":")[0], 16) + BYTE_SIZE
+                read_address_offset = long(asm.split("#")[-1].rstrip("]"), 16)
+                read_address = pc + read_address_offset + BYTE_SIZE
+                enforcing_setup_address += disasm.read_value_by_kernel_address(read_address)
+                continue
+
+            if i == 1 and selinux_enforcing_tags[1] in asm and selinux_enforcing_tags[2] in asm_list[index+1]:
+                offset = long(asm.split("#")[-1].rstrip("]"), 16)
+                enforcing_setup_address += offset
                 break
 
     elif platform == 64:
@@ -105,7 +114,7 @@ def get_selinux_enforcing_address():
     else:
         raise
 
-    print "selinux_enforcing_address: 0x%lx" % enforcing_setup_address
+    print "selinux_enforcing_address = 0x%lx" % enforcing_setup_address
     return enforcing_setup_address
 
 
@@ -128,7 +137,7 @@ def get_security_offset():
     else:
         raise
 
-    print "cred_security_offset: 0x%lx" % cred_security_offset
+    print "cred_security_offset = 0x%lx" % cred_security_offset
     return cred_security_offset
 
 
@@ -182,7 +191,7 @@ def get_ptmx_fops_address():
         raise
 
     if ptmx_fops_address > KERNEL_BASE_ADDR:
-        print "ptmx_fops_address: 0x%lx" % ptmx_fops_address
+        print "ptmx_fops_address = 0x%lx" % ptmx_fops_address
         return ptmx_fops_address
 
     raise
@@ -208,7 +217,7 @@ def get_ioctl_back_address():
         raise
 
     if ioctl_back_address > KERNEL_BASE_ADDR:
-        print "ioctl_back_address: 0x%lx" % ioctl_back_address
+        print "ioctl_back_address = 0x%lx" % ioctl_back_address
         return ioctl_back_address
 
     raise
@@ -236,7 +245,7 @@ def get_init_task_address():
                 break
 
     if init_task_address & 0xfff == 0:
-        print "init_task_address: 0x%lx" % init_task_address
+        print "init_task_address = 0x%lx" % init_task_address
         return init_task_address
 
     raise
@@ -276,7 +285,7 @@ def get_task_struct_tasks_offset():
         raise
 
     if task_struct_tasks_offset > 0:
-        print "task_struct_tasks_offset: 0x%lx" % task_struct_tasks_offset
+        print "task_struct_tasks_offset = 0x%lx" % task_struct_tasks_offset
         return task_struct_tasks_offset
 
     raise
@@ -287,7 +296,7 @@ def get_selinux_init_context_sid():
     pass
 
 
-@arm64
+@arm32
 def main():
     get_selinux_enforcing_address()
     get_security_offset()
