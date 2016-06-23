@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # encoding: utf-8
 """
-@author:     idhyt
+@author:     idhyt@hotmail.com
 @date:
 @description:
 
@@ -9,10 +9,7 @@
 
 
 from kdisasm import *
-from config.path import *
 
-disasm = DisAsm(KERNEL_FILE_PATH, KALLSYMS_FILE_PATH)
-kallsyms = KallSyms(KALLSYMS_FILE_PATH)
 
 # patch tags
 patch_tags = {
@@ -87,7 +84,7 @@ def get_selinux_enforcing_address():
     selinux_enforcing_tags = patch_tags["selinux_enforcing_tags"]
 
     enforcing_setup_address = 0
-    asm_list = disasm.get_asm_by_name("enforcing_setup")
+    asm_list = ckdisasm.get_asm_by_name("enforcing_setup")
 
     if platform == 32:
         i = 0
@@ -97,7 +94,7 @@ def get_selinux_enforcing_address():
                 pc = long(asm.split(":")[0], 16) + BYTE_SIZE
                 read_address_offset = long(asm.split("#")[-1].rstrip("]"), 16)
                 read_address = pc + read_address_offset + BYTE_SIZE
-                enforcing_setup_address += disasm.read_value_by_kernel_address(read_address)
+                enforcing_setup_address += ckdisasm.get_kernel_instance().read_value_by_kernel_address(read_address)
                 continue
 
             if i == 1 and selinux_enforcing_tags[1] in asm and selinux_enforcing_tags[2] in asm_list[index+1]:
@@ -124,7 +121,7 @@ def get_security_offset():
     cred_security_offset_tags = patch_tags["cred_security_offset_tags"]
 
     cred_security_offset = 0
-    asm_list = disasm.get_asm_by_name("cred_has_capability")
+    asm_list = ckdisasm.get_asm_by_name("cred_has_capability")
 
     if platform == 32:
         pass
@@ -147,9 +144,9 @@ def get_ptmx_fops_address():
 
     ptmx_fops_address = 0
 
-    tty_default_fops_address = kallsyms.find_apis_addr(["tty_default_fops"])["tty_default_fops"]
+    tty_default_fops_address = ckdisasm.get_kallsyms_instance().find_apis_address(["tty_default_fops"])["tty_default_fops"]
     # print hex(tty_default_fops_address)
-    asm_list = disasm.get_asm_by_name("pty_init")
+    asm_list = ckdisasm.get_asm_by_name("pty_init")
 
     if platform == 32:
         pass
@@ -202,7 +199,7 @@ def get_ioctl_back_address():
     ioctl_back_address_tags = patch_tags["ioctl_back_address_tags"]
 
     ioctl_back_address = 0
-    asm_list = disasm.get_asm_by_name("do_vfs_ioctl")
+    asm_list = ckdisasm.get_asm_by_name("do_vfs_ioctl")
 
     if platform == 32:
         pass
@@ -228,7 +225,7 @@ def get_init_task_address():
     init_task_tags = patch_tags["init_task_tags"]
 
     init_task_address = 0
-    asm_list = disasm.get_asm_by_name("cgroup_init_subsys")
+    asm_list = ckdisasm.get_asm_by_name("cgroup_init_subsys")
 
     if platform == 32:
         pass
@@ -258,7 +255,7 @@ def get_task_struct_tasks_offset():
     task_struct_tasks_offset = 0
     init_task_address = get_init_task_address()
 
-    asm_list = disasm.get_asm_by_name("copy_process")
+    asm_list = ckdisasm.get_asm_by_name("copy_process")
 
     if platform == 32:
         pass
@@ -291,12 +288,32 @@ def get_task_struct_tasks_offset():
     raise
 
 
+def get_commit_creds_address():
+    api_name_list = [
+        "commit_creds",
+    ]
+    commit_creds_address = ckdisasm.get_kallsyms_instance().find_apis_address(api_name_list)["commit_creds"]
+    print "commit_creds_address = 0x%x" % commit_creds_address
+
+    return commit_creds_address
+
+
+def get_prepare_kernel_cred_address():
+    api_name_list = [
+        "prepare_kernel_cred",
+    ]
+    prepare_kernel_cred_address = ckdisasm.get_kallsyms_instance().find_apis_address(api_name_list)["prepare_kernel_cred"]
+    print "prepare_kernel_cred = 0x%x" % prepare_kernel_cred_address
+
+    return prepare_kernel_cred_address
+
+
 # u:r:init:s0
 def get_selinux_init_context_sid():
     pass
 
 
-@arm32
+@arm64
 def main():
     get_selinux_enforcing_address()
     get_security_offset()

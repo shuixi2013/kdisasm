@@ -1,18 +1,13 @@
 #!/usr/bin/env python
 # encoding: utf-8
 """
-@author:     idhyt
+@author:     idhyt@hotmail.com
 @date:
 @description:
-
+            rop gadget
 """
 
-import kdisasm
-
-from config.path import *
-
-disasm = kdisasm.DisAsm(KERNEL_FILE_PATH, KALLSYMS_FILE_PATH)
-kallsyms = kdisasm.KallSyms(KALLSYMS_FILE_PATH)
+from kdisasm import *
 
 
 class RopGadget(object):
@@ -38,14 +33,14 @@ class RopGadget(object):
         rop_gadget_list = []
 
         rop_gadget_len = len(rop_gadget_ins_list)
-        all_api_info = kallsyms.get_all_api_info()
+        all_api_info = ckdisasm.get_kallsyms_instance().get_all_api_info()
         find = False
 
         for api_info in all_api_info:
             if api_info["length"] < rop_gadget_len * 4:
                 continue
 
-            asm_ins_info_list = disasm.get_asm(api_info["address"], api_info["length"])
+            asm_ins_info_list = ckdisasm.get_asm_by_address(api_info["address"], api_info["length"])
             i = 0
             for asm_ins_info in asm_ins_info_list:
                 asm_ins = asm_ins_info.split(":")[-1].strip()
@@ -97,14 +92,14 @@ class RopGadget(object):
         pattern = re.compile(regex, re.IGNORECASE)
 
         rop_gadget_regex_len = len(rop_gadget_regex)
-        all_api_info = kallsyms.get_all_api_info()
+        all_api_info = ckdisasm.get_kallsyms_instance().get_all_api_info()
         find = False
 
         for api_info in all_api_info:
             if api_info["length"] < rop_gadget_regex_len * 4:
                 continue
 
-            asm_ins_info_list = disasm.get_asm(api_info["address"], api_info["length"])
+            asm_ins_info_list = ckdisasm.get_asm_by_address(api_info["address"], api_info["length"])
             asm_ins_info_str = "\n".join(asm_ins_info_list)
             result = pattern.findall(asm_ins_info_str)
             if len(result) > 0:
@@ -141,10 +136,11 @@ class RopGadget(object):
         return self.get_rop_gadget_by_regex(regex_asm_ins, is_get_all)
 
 
+ropgadget = RopGadget()
+
+
 # eg...
 def example():
-    ropgadget = RopGadget()
-
     # rop gadget asm ins list
     asm_ins_list = [
         "ldr x2, [x5, #0x20]",
@@ -153,7 +149,7 @@ def example():
     # ropgadget.set_dump_file("example_rop_gadget.txt")
     rop_gadget_location = ropgadget.dump_rop_gadget_location(asm_ins_list, True)
     for location in rop_gadget_location:
-        kdisasm.output_log("[*] rop gadget find in %s -> 0x%lx" % (location["api_name"], location["address"]))
+        output_log("[*] rop gadget find in %s -> 0x%lx" % (location["api_name"], location["address"]))
 
     # find rop gadget by asm ins regex
     regex_asm_ins = [
@@ -164,9 +160,9 @@ def example():
     ropgadget.set_dump_file("example_rop_gadget.txt")
     rop_gadget_list = ropgadget.dump_rop_gadget_by_regex(regex_asm_ins, True)
 
-    kdisasm.output_log("******** rop gadget ********")
+    output_log("******** rop gadget ********")
     for rop_gadget in rop_gadget_list:
-        kdisasm.output_log("%s\n" % rop_gadget)
+        output_log("%s\n" % rop_gadget)
 
     """
     and is could be write like:
@@ -181,9 +177,6 @@ def example():
 
 # used daily
 def get_rop_gadget():
-
-    ropgadget = RopGadget()
-
     regex_asm_ins = [
         "ldr.+, \[x4.+",
         "ldr.+, \[x4.+",     # ldr x0, [x4, #0xc]
@@ -197,11 +190,11 @@ def get_rop_gadget():
     ropgadget.set_dump_file("ldr_x4_rop_gadget.txt")
     rop_gadget_list = ropgadget.dump_rop_gadget_by_regex(regex_asm_ins, True)
 
-    kdisasm.output_log("******** rop gadget ********")
+    output_log("******** rop gadget ********")
     for rop_gadget in rop_gadget_list:
-        kdisasm.output_log("%s\n" % rop_gadget)
+        output_log("%s\n" % rop_gadget)
 
 
 if __name__ == '__main__':
-    # example()
-    get_rop_gadget()
+    example()
+    # get_rop_gadget()

@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 # encoding: utf-8
 """
-@author:     idhyt
+@author:     idhyt@hotmail.com
 @date:
 @description:
+            android kernel disassemble
 
 """
 
@@ -50,118 +51,47 @@ def output_log(print_info, is_print=True, is_print_time=False):
         print '%s%s' % (str(date), print_info)
 
 
-# Disassemble and dump
-@arm32
-class DisAsm(object):
-    def __init__(self, kernel_file_path=None, kallsyms_file_path=None):
-        if not isinstance(kernel_file_path, str) or not isinstance(kallsyms_file_path, str):
+# kernel file
+class Kernel(object):
+    def __init__(self, kernel_file_path):
+        if not isinstance(kernel_file_path, str):
             raise
-
-        self.__kernel_base_addr = KERNEL_BASE_ADDR
         self.__kernel_file_path = kernel_file_path
-        self.__kallsyms_file_path = kallsyms_file_path
         self.__all_hex_content = None
-        self.__all_kallsyms_api_info = None
-
-        self.__kallsyms = KallSyms(self.__kallsyms_file_path)
+        self.__all_str_content = None
 
     def __clean__(self):
         self.__kernel_file_path = None
-        self.__kallsyms_file_path = None
         self.__all_hex_content = None
-        self.__all_kallsyms_api_info = None
+        self.__all_str_content = None
 
     def get_part_hex_code(self, start, len_=0x100):
-        f = open(self.__kernel_file_path, "rb")
-        f.seek(start, 0)
-        hex_content = f.read(len_)
-        f.close()
+        with open(self.__kernel_file_path, "rb") as f:
+            f.seek(start, 0)
+            hex_content = f.read(len_)
+            f.close()
+
         return hex_content
 
     def get_all_hex_code(self):
         if self.__all_hex_content is None:
-            f = open(self.__kernel_file_path, "rb")
-            self.__all_hex_content = f.read()
-            f.close()
+            with open(self.__kernel_file_path, "rb") as f:
+                self.__all_hex_content = f.read()
+                f.close()
+
         return self.__all_hex_content
-
-    def get_kallsyms_api_info(self):
-        if self.__all_kallsyms_api_info is None:
-            self.__all_kallsyms_api_info = self.__kallsyms.get_all_api_info()
-
-        return self.__all_kallsyms_api_info
-
-    def disasm_hex_code(self, hex_code, disasm_base_addr=0x1000, is_dump=False):
-        if len(hex_code) == 0:
-            return []
-        asm_list = []
-        try:
-            md = Cs(Architecture, BasicMode)
-            for i in md.disasm(hex_code, disasm_base_addr):
-                # print "0x%x:\t%s\t%s" % (i.address, i.mnemonic, i.op_str)
-                # print "0x%x: %s %s" % (i.address, i.mnemonic, i.op_str)
-                if is_dump:
-                    asm_list.append("0x%x: %s %s\n" % (i.address, i.mnemonic, i.op_str))
-                else:
-                    asm_list.append("0x%x: %s %s" % (i.address, i.mnemonic, i.op_str))
-            return asm_list
-        except CsError as e:
-            output_log(str(e))
-
-    def get_asm_by_address(self, disasm_start_addr, disasm_len):
-        disasm_file_offset = disasm_start_addr - self.__kernel_base_addr
-        buf = self.get_part_hex_code(disasm_file_offset, disasm_len)
-        return self.disasm_hex_code(buf, disasm_start_addr)
-
-    def dump_disasm(self, dump_file_name):
-        all_api_info = self.get_kallsyms_api_info()
-
-        if not isinstance(all_api_info, list):
-            raise
-
-        with open(dump_file_name, "w+") as f:
-            for aip_info in all_api_info:
-
-                start_ = aip_info["address"] - self.__kernel_base_addr
-                cur_hex_code = self.get_part_hex_code(start_, aip_info["length"])
-                cur_ins_list = self.disasm_hex_code(cur_hex_code, aip_info["address"], True)
-                cur_ins_info = "0x%lx %s 0x%lx" % (aip_info["address"], aip_info["api_name"], aip_info["length"])
-                cur_ins_list.insert(0, "\n\n%s\n" % cur_ins_info)
-
-                f.writelines(cur_ins_list)
-
-                del cur_ins_list[:]
-
-                output_log("[ok]" + cur_ins_info)
-
-        f.close()
-
-    # param: "api_name"
-    # return: ["asm1", "asm2", ...]
-    def get_asm_by_name(self, api_name):
-
-        if not isinstance(api_name, str):
-            raise
-
-        all_api_info = self.get_kallsyms_api_info()
-
-        if not isinstance(all_api_info, list):
-            raise
-
-        for api_info in all_api_info:
-            if api_info["api_name"] == api_name:
-                return self.get_asm_by_address(api_info["address"], api_info["length"])
 
     # param: offset of kernel file
     # return: value
     def read_value_by_offset(self, offset):
         value = 0
-        f = open(self.__kernel_file_path, "rb")
-        f.seek(offset)
-        for i in xrange(BYTE_SIZE):
-            c = f.read(1)
-            value += ord(c) << (i * 8)
-        f.close()
+        with open(self.__kernel_file_path, "rb") as f:
+            f.seek(offset)
+            for i in xrange(BYTE_SIZE):
+                c = f.read(1)
+                value += ord(c) << (i * 8)
+            f.close()
+
         return value
 
     # param: address of kernel
@@ -171,17 +101,42 @@ class DisAsm(object):
             raise
         return self.read_value_by_offset(kernel_address - KERNEL_BASE_ADDR)
 
+        # return: kernel version
+    def get_kernel_version(self):
+        offset = 0x9f0000
+        version = 0
+        found = False
+        for i in xrange(0x10000):
+            value = self.read_value_by_offset(offset)
+            if value == 0x756e694c:
+                found = True
+                break
+            offset += 1
 
-# find api address of kallsyms
-# used to search rop
+        if found:
+            with open(self.__kernel_file_path, "r") as f:
+                f.seek(offset)
+                version = f.read(0x7b)
+                print version
+                f.close()
+
+        return version
+
+
+# kernel kallsyms
 class KallSyms():
     def __init__(self, kallsyms_file_path):
+        if not isinstance(kallsyms_file_path, str):
+            raise
+
         self.__kallsyms_file_path = kallsyms_file_path
         self.__all_kallsyms_content = None
+        self.__all_kallsyms_api_info = None
 
     def __clean__(self):
-        self.__kernel_file_path = None
+        self.__kallsyms_file_path = None
         self.__all_kallsyms_content = None
+        self.__all_kallsyms_api_info = None
 
     # return []
     def get_all_kallsyms_content(self):
@@ -190,6 +145,12 @@ class KallSyms():
                 self.__all_kallsyms_content = f.readlines()
                 f.close()
         return self.__all_kallsyms_content
+
+    def get_kallsyms_api_info(self):
+        if self.__all_kallsyms_api_info is None:
+            self.__all_kallsyms_api_info = self.get_all_api_info()
+
+        return self.__all_kallsyms_api_info
 
     # return = [
     #     {"api_name": "xxx", "address": 0, "length": 0},
@@ -222,7 +183,7 @@ class KallSyms():
 
     # param ["api_name", "api_name2", ...]
     # return [{"api_name": address}, {}, ...]
-    def find_apis_addr(self, api_name_list):
+    def find_apis_address(self, api_name_list):
         if not isinstance(api_name_list, list):
             raise
 
@@ -243,16 +204,113 @@ class KallSyms():
                 break
 
         if len(api_name_list) > 0:
-            output_log("get api addr lost")
-            output_log(", ".join(api_name_list))
+            output_log("get [%s] address lost" % (", ".join(api_name_list)))
+            for api_name in api_name_list:
+                apis_addr_dict.setdefault(api_name, 0)
 
         return apis_addr_dict
 
 
+# Disassemble and dump
+@arm64
+class KDisAsm(object):
+    def __init__(self, kernel_file_path=None, kallsyms_file_path=None):
+        if not isinstance(kernel_file_path, str) or not isinstance(kallsyms_file_path, str):
+            raise
+
+        self.__kernel_file_path = kernel_file_path
+        self.__kallsyms_file_path = kallsyms_file_path
+
+        self.__kernel_base_addr = KERNEL_BASE_ADDR
+
+        self.__kernel = Kernel(self.__kernel_file_path)
+        self.__kallsyms = KallSyms(self.__kallsyms_file_path)
+
+    def __clean__(self):
+        self.__kernel_file_path = None
+        self.__kallsyms_file_path = None
+        self.__kernel = None
+        self.__kallsyms = None
+
+    def get_kernel_instance(self):
+        if self.__kernel is None:
+            self.__kernel = Kernel(self.__kernel_file_path)
+        return self.__kernel
+
+    def get_kallsyms_instance(self):
+        if self.__kallsyms is None:
+            self.__kallsyms = KallSyms(self.__kernel_file_path)
+        return self.__kallsyms
+
+    @staticmethod
+    def disasm_hex_code(hex_code, disasm_base_addr=0x1000, is_dump=False):
+        if len(hex_code) == 0:
+            return []
+        asm_list = []
+        try:
+            md = Cs(Architecture, BasicMode)
+            for i in md.disasm(hex_code, disasm_base_addr):
+                # print "0x%x:\t%s\t%s" % (i.address, i.mnemonic, i.op_str)
+                # print "0x%x: %s %s" % (i.address, i.mnemonic, i.op_str)
+                if is_dump:
+                    asm_list.append("0x%x: %s %s\n" % (i.address, i.mnemonic, i.op_str))
+                else:
+                    asm_list.append("0x%x: %s %s" % (i.address, i.mnemonic, i.op_str))
+            return asm_list
+        except CsError as e:
+            output_log(str(e))
+
+    def get_asm_by_address(self, disasm_start_addr, disasm_len):
+        disasm_file_offset = disasm_start_addr - self.__kernel_base_addr
+        buf = self.__kernel.get_part_hex_code(disasm_file_offset, disasm_len)
+        return self.disasm_hex_code(buf, disasm_start_addr)
+
+    def dump_disasm(self, dump_file_name):
+        all_api_info = self.__kallsyms.get_kallsyms_api_info()
+
+        if not isinstance(all_api_info, list):
+            raise
+
+        with open(dump_file_name, "w+") as f:
+            for aip_info in all_api_info:
+
+                start_ = aip_info["address"] - self.__kernel_base_addr
+                cur_hex_code = self.__kernel.get_part_hex_code(start_, aip_info["length"])
+                cur_ins_list = self.disasm_hex_code(cur_hex_code, aip_info["address"], True)
+                cur_ins_info = "0x%lx %s 0x%lx" % (aip_info["address"], aip_info["api_name"], aip_info["length"])
+                cur_ins_list.insert(0, "\n\n%s\n" % cur_ins_info)
+
+                f.writelines(cur_ins_list)
+
+                del cur_ins_list[:]
+
+                output_log("[ok]" + cur_ins_info)
+
+        f.close()
+
+    # param: "api_name"
+    # return: ["asm1", "asm2", ...]
+    def get_asm_by_name(self, api_name):
+
+        if not isinstance(api_name, str):
+            raise
+
+        all_api_info = self.__kallsyms.get_kallsyms_api_info()
+
+        if not isinstance(all_api_info, list):
+            raise
+
+        for api_info in all_api_info:
+            if api_info["api_name"] == api_name:
+                return self.get_asm_by_address(api_info["address"], api_info["length"])
+
+
+ckdisasm = KDisAsm(KERNEL_FILE_PATH, KALLSYMS_FILE_PATH)
+
+
 # example disassemble
 def dump_asm():
-    da = DisAsm(KERNEL_FILE_PATH, KALLSYMS_FILE_PATH)
-    da.dump_disasm("nexus5-4.4-KRT16M.c")
+    ckdisasm.dump_disasm("nexus5-4.4-KRT16M.c")
 
 
 # example find api address
@@ -268,21 +326,19 @@ def get_apis_addr():
         "do_vfs_ioctl",
         "usb_hcd_irq"
     ]
-    kallsyms = KallSyms(KALLSYMS_FILE_PATH)
-    apis_addr_dict = kallsyms.find_apis_addr(api_name_list)
+    apis_addr_dict = ckdisasm.get_kallsyms_instance().find_apis_address(api_name_list)
     print apis_addr_dict
 
 
 def get_api_asm():
-    da = DisAsm(KERNEL_FILE_PATH, KALLSYMS_FILE_PATH)
-    asm_list = da.get_asm_by_name("enforcing_setup")
-    for asm_ in asm_list:
-        print asm_
+    asm_list = ckdisasm.get_asm_by_name("enforcing_setup")
+    for asm in asm_list:
+        print asm
 
 
 if __name__ == '__main__':
     # dump_asm()
-    # get_apis_addr()
+    get_apis_addr()
     get_api_asm()
     pass
 
