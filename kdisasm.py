@@ -101,25 +101,14 @@ class Kernel(object):
             raise
         return self.read_value_by_offset(kernel_address - KERNEL_BASE_ADDR)
 
-        # return: kernel version
+    # return: kernel version
     def get_kernel_version(self):
-        offset = 0x9f0000
-        version = 0
-        found = False
-        for i in xrange(0x10000):
-            value = self.read_value_by_offset(offset)
-            if value == 0x756e694c:
-                found = True
-                break
-            offset += 1
-
-        if found:
-            with open(self.__kernel_file_path, "r") as f:
-                f.seek(offset)
-                version = f.read(0x7b)
-                print version
-                f.close()
-
+        # linux = "\x4C\x69\x6E\x75\x78"
+        import re
+        regex = r"Linux.+\s"
+        pattern = re.compile(regex, re.IGNORECASE)
+        result = pattern.findall(self.get_all_hex_code())
+        version = result[0] if len(result) > 0 else "get version false"
         return version
 
 
