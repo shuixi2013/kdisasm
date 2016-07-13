@@ -20,24 +20,23 @@ KERNEL_BASE_ADDR = "@"
 BYTE_SIZE = 0
 
 
-def arm32(func):
+def set_mode(func):
     global Architecture, BasicMode, KERNEL_BASE_ADDR, BYTE_SIZE
 
-    Architecture = CS_ARCH_ARM  # CS_ARCH_ARM
-    BasicMode = CS_MODE_ARM     # CS_MODE_THUMB
-    KERNEL_BASE_ADDR = 0xc0008000
-    BYTE_SIZE = 4
+    ckernel = Kernel(KERNEL_FILE_PATH)
 
-    return func
+    if ckernel.get_kernel_platform() == "arm64":
+        Architecture, BasicMode, KERNEL_BASE_ADDR, BYTE_SIZE = \
+            CS_ARCH_ARM64, CS_MODE_ARM, 0xffffffc000080000, 8
 
+    elif ckernel.get_kernel_platform() == "arm":
+        Architecture, BasicMode, KERNEL_BASE_ADDR, BYTE_SIZE = \
+            CS_ARCH_ARM, CS_MODE_ARM, 0xc0008000, 4
 
-def arm64(func):
-    global Architecture, BasicMode, KERNEL_BASE_ADDR, BYTE_SIZE
+    else:
+        raise
 
-    Architecture = CS_ARCH_ARM64
-    BasicMode = CS_MODE_ARM
-    KERNEL_BASE_ADDR = 0xffffffc000080000
-    BYTE_SIZE = 8
+    del ckernel
 
     return func
 
@@ -57,15 +56,15 @@ class Kernel(object):
         if not isinstance(kernel_file_path, str):
             raise
         self.__kernel_file_path = kernel_file_path
-        self.__all_hex_content = None
-        self.__all_str_content = None
+        self.__all_kernel_content = None
+        self.__kernel_version = None
+        self.__kernel_platform = None
 
     def __clean__(self):
         self.__kernel_file_path = None
-        self.__all_hex_content = None
-        self.__all_str_content = None
+        self.__all_kernel_content = None
 
-    def get_part_hex_code(self, start, len_=0x100):
+    def get_part_kernel_content(self, start, len_=0x100):
         with open(self.__kernel_file_path, "rb") as f:
             f.seek(start, 0)
             hex_content = f.read(len_)
@@ -73,13 +72,25 @@ class Kernel(object):
 
         return hex_content
 
-    def get_all_hex_code(self):
-        if self.__all_hex_content is None:
+    def get_all_kernel_content(self):
+        if self.__all_kernel_content is None:
             with open(self.__kernel_file_path, "rb") as f:
-                self.__all_hex_content = f.read()
+                self.__all_kernel_content = f.read()
                 f.close()
 
-        return self.__all_hex_content
+        return self.__all_kernel_content
+
+    def get_kernel_version(self):
+        if self.__kernel_version is None:
+            self.get_kernel_info()
+
+        return self.__kernel_version
+
+    def get_kernel_platform(self):
+        if self.__kernel_platform is None:
+            self.get_kernel_info()
+
+        return self.__kernel_platform
 
     # param: offset of kernel file
     # return: value
@@ -101,19 +112,26 @@ class Kernel(object):
             raise
         return self.read_value_by_offset(kernel_address - KERNEL_BASE_ADDR)
 
-    # return: kernel version
-    def get_kernel_version(self):
+    # return: kernel version and platform
+    def get_kernel_info(self):
         # linux = "\x4C\x69\x6E\x75\x78"
         import re
-        regex = r"Linux.+\s"
-        pattern = re.compile(regex, re.IGNORECASE)
-        result = pattern.findall(self.get_all_hex_code())
-        version = result[0] if len(result) > 0 else "get version false"
-        return version
+        version = r"Linux\sversion\s\d+.\d+.\d+.*(\#.*\d+:\d+:\d+\s.*\s[\d+]{4})"
+        v_regex = re.search(version, self.get_all_kernel_content())
+        if v_regex:
+            self.__kernel_version = v_regex.group(0)
+
+            platform = v_regex.group(1) + "\x00+(\w+)\x00"
+            pattern = re.compile(platform, re.IGNORECASE)
+            p_regex = pattern.search(self.get_all_kernel_content(), pos=v_regex.end())
+            if p_regex:
+                self.__kernel_platform = p_regex.group(1)
+
+        return self.__kernel_version, self.__kernel_platform
 
 
 # kernel kallsyms
-class KallSyms():
+class KallSyms(object):
     def __init__(self, kallsyms_file_path):
         if not isinstance(kallsyms_file_path, str):
             raise
@@ -201,7 +219,7 @@ class KallSyms():
 
 
 # Disassemble and dump
-@arm64
+@set_mode
 class KDisAsm(object):
     def __init__(self, kernel_file_path=None, kallsyms_file_path=None):
         if not isinstance(kernel_file_path, str) or not isinstance(kallsyms_file_path, str):
@@ -251,7 +269,7 @@ class KDisAsm(object):
 
     def get_asm_by_address(self, disasm_start_addr, disasm_len):
         disasm_file_offset = disasm_start_addr - self.__kernel_base_addr
-        buf = self.__kernel.get_part_hex_code(disasm_file_offset, disasm_len)
+        buf = self.__kernel.get_part_kernel_content(disasm_file_offset, disasm_len)
         return self.disasm_hex_code(buf, disasm_start_addr)
 
     def dump_disasm(self, dump_file_name):
@@ -264,7 +282,7 @@ class KDisAsm(object):
             for aip_info in all_api_info:
 
                 start_ = aip_info["address"] - self.__kernel_base_addr
-                cur_hex_code = self.__kernel.get_part_hex_code(start_, aip_info["length"])
+                cur_hex_code = self.__kernel.get_part_kernel_content(start_, aip_info["length"])
                 cur_ins_list = self.disasm_hex_code(cur_hex_code, aip_info["address"], True)
                 cur_ins_info = "0x%lx %s 0x%lx" % (aip_info["address"], aip_info["api_name"], aip_info["length"])
                 cur_ins_list.insert(0, "\n\n%s\n" % cur_ins_info)
@@ -325,10 +343,14 @@ def get_api_asm():
         print asm
 
 
-if __name__ == '__main__':
+def main():
     # dump_asm()
-    get_apis_addr()
+    # get_apis_addr()
     get_api_asm()
+
+
+if __name__ == '__main__':
+    main()
     pass
 
 
